@@ -17,6 +17,17 @@ const OBSTACLES: [(Vec2, Vec2); 5] = [
     (Vec2::new(385.0, 120.0), Vec2::new(28.0, 185.0)),
 ];
 
+const AGENT_GROUPS: CollisionGroups = CollisionGroups::new(Group::GROUP_1, Group::GROUP_2);
+const WALL_GROUPS: CollisionGroups = CollisionGroups::new(Group::GROUP_2, Group::GROUP_1);
+const EDGE_AVOID_DISTANCE: f32 = 120.0;
+const EDGE_AVOID_WEIGHT: f32 = 2.4;
+const OBSTACLE_AVOID_DISTANCE: f32 = 58.0;
+const OBSTACLE_AVOID_WEIGHT: f32 = 2.0;
+const HIDER_SEPARATION_RADIUS: f32 = 34.0;
+const HIDER_SEPARATION_WEIGHT: f32 = 1.4;
+const SEEKER_AVOID_WEIGHT: f32 = 3.2;
+const STRAFE_WEIGHT: f32 = 0.8;
+
 pub fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
 
@@ -43,7 +54,8 @@ pub fn setup(mut commands: Commands) {
             DesiredVelocity { value: Vec2::ZERO },
             RigidBody::KinematicPositionBased,
             Collider::ball(HIDER_RADIUS),
-            KinematicCharacterController::default(),
+            AGENT_GROUPS,
+            character_controller(),
         ));
     }
 
@@ -64,7 +76,8 @@ pub fn setup(mut commands: Commands) {
             DesiredVelocity { value: Vec2::ZERO },
             RigidBody::KinematicPositionBased,
             Collider::ball(SEEKER_RADIUS),
-            KinematicCharacterController::default(),
+            AGENT_GROUPS,
+            character_controller(),
         ));
     }
 
@@ -140,7 +153,15 @@ fn spawn_wall(commands: &mut Commands, pos: Vec2, size: Vec2) {
         Wall,
         RigidBody::Fixed,
         Collider::cuboid(size.x / 2.0, size.y / 2.0),
+        WALL_GROUPS,
     ));
+}
+
+fn character_controller() -> KinematicCharacterController {
+    KinematicCharacterController {
+        filter_groups: Some(AGENT_GROUPS),
+        ..default()
+    }
 }
 
 fn random_position(rng: &mut impl Rng) -> Vec2 {
@@ -181,6 +202,11 @@ pub fn hider_policy(
         .iter()
         .map(|transform| transform.translation.truncate())
         .collect();
+    let hider_positions: Vec<Vec2> = hiders
+        .iter()
+        .filter(|(hider, _, _)| !hider.captured)
+        .map(|(_, transform, _)| transform.translation.truncate())
+        .collect();
 
     for (hider, transform, mut velocity) in hiders.iter_mut() {
         if hider.captured {
@@ -189,16 +215,105 @@ pub fn hider_policy(
         }
 
         let pos = transform.translation.truncate();
-        let mut escape = Vec2::ZERO;
+        let mut steering = edge_avoidance(pos) * EDGE_AVOID_WEIGHT;
+        steering += obstacle_avoidance(pos) * OBSTACLE_AVOID_WEIGHT;
+        steering += hider_separation(pos, &hider_positions) * HIDER_SEPARATION_WEIGHT;
+
+        let mut nearest_seeker = None;
+        let mut nearest_distance = f32::MAX;
 
         for seeker_pos in &seeker_positions {
             let away = pos - *seeker_pos;
             let distance = away.length().max(1.0);
-            escape += away.normalize_or_zero() / distance;
+            let threat = ((SIGHT_RANGE - distance).max(0.0) / SIGHT_RANGE).powi(2);
+            steering += away.normalize_or_zero() * (0.25 + threat * SEEKER_AVOID_WEIGHT);
+
+            if distance < nearest_distance {
+                nearest_seeker = Some(*seeker_pos);
+                nearest_distance = distance;
+            }
         }
 
-        velocity.value = escape.normalize_or_zero() * HIDER_SPEED;
+        if let Some(seeker_pos) = nearest_seeker {
+            let away = (pos - seeker_pos).normalize_or_zero();
+            let side = if (pos.x * 0.013 + pos.y * 0.017).sin() >= 0.0 {
+                1.0
+            } else {
+                -1.0
+            };
+            steering += Vec2::new(-away.y, away.x) * side * STRAFE_WEIGHT;
+        }
+
+        velocity.value = steering.normalize_or_zero() * HIDER_SPEED;
     }
+}
+
+fn edge_avoidance(pos: Vec2) -> Vec2 {
+    let left = -ARENA_W / 2.0;
+    let right = ARENA_W / 2.0;
+    let bottom = -ARENA_H / 2.0;
+    let top = ARENA_H / 2.0;
+    let mut force = Vec2::ZERO;
+
+    force.x += edge_push(pos.x - left);
+    force.x -= edge_push(right - pos.x);
+    force.y += edge_push(pos.y - bottom);
+    force.y -= edge_push(top - pos.y);
+
+    force
+}
+
+fn edge_push(distance: f32) -> f32 {
+    if distance >= EDGE_AVOID_DISTANCE {
+        0.0
+    } else {
+        ((EDGE_AVOID_DISTANCE - distance) / EDGE_AVOID_DISTANCE).powi(2)
+    }
+}
+
+fn obstacle_avoidance(pos: Vec2) -> Vec2 {
+    let mut force = Vec2::ZERO;
+
+    for (center, size) in OBSTACLES {
+        let closest = Vec2::new(
+            pos.x
+                .clamp(center.x - size.x / 2.0, center.x + size.x / 2.0),
+            pos.y
+                .clamp(center.y - size.y / 2.0, center.y + size.y / 2.0),
+        );
+        let away = pos - closest;
+        let distance = away.length();
+
+        if distance < OBSTACLE_AVOID_DISTANCE {
+            let direction = if distance > 0.001 {
+                away / distance
+            } else {
+                (pos - center).normalize_or_zero()
+            };
+            let strength = ((OBSTACLE_AVOID_DISTANCE - distance) / OBSTACLE_AVOID_DISTANCE).powi(2);
+            force += direction * strength;
+        }
+    }
+
+    force
+}
+
+fn hider_separation(pos: Vec2, hider_positions: &[Vec2]) -> Vec2 {
+    let mut force = Vec2::ZERO;
+    let separation_radius_sq = HIDER_SEPARATION_RADIUS * HIDER_SEPARATION_RADIUS;
+
+    for other_pos in hider_positions {
+        let away = pos - *other_pos;
+        let distance_sq = away.length_squared();
+
+        if distance_sq > 0.001 && distance_sq < separation_radius_sq {
+            let distance = distance_sq.sqrt();
+            let strength = ((HIDER_SEPARATION_RADIUS - distance) / HIDER_SEPARATION_RADIUS).powi(2);
+            force += away / distance * strength;
+        }
+    }
+
+    force
 }
 
 pub fn tick_control_timer(time: Res<Time>, mut control_timer: ResMut<ControlTimer>) {
@@ -286,15 +401,25 @@ pub fn update_agent_visuals(mut agents: Query<(&DesiredVelocity, &mut Transform)
 }
 
 pub fn capture_system(
+    mut commands: Commands,
     seekers: Query<&Transform, With<Seeker>>,
-    mut hiders: Query<(&mut Hider, &Transform, &mut Sprite), Without<Seeker>>,
+    mut hiders: Query<
+        (
+            Entity,
+            &mut Hider,
+            &Transform,
+            &mut Sprite,
+            &mut DesiredVelocity,
+        ),
+        Without<Seeker>,
+    >,
 ) {
     let seeker_positions: Vec<Vec2> = seekers
         .iter()
         .map(|transform| transform.translation.truncate())
         .collect();
 
-    for (mut hider, transform, mut sprite) in hiders.iter_mut() {
+    for (entity, mut hider, transform, mut sprite, mut velocity) in hiders.iter_mut() {
         if hider.captured {
             continue;
         }
@@ -306,8 +431,12 @@ pub fn capture_system(
 
         if captured {
             hider.captured = true;
+            velocity.value = Vec2::ZERO;
             sprite.color = Color::srgb(0.25, 0.25, 0.25);
             sprite.custom_size = Some(Vec2::splat(HIDER_RADIUS * 1.4));
+            commands
+                .entity(entity)
+                .remove::<(RigidBody, Collider, KinematicCharacterController)>();
         }
     }
 }
@@ -326,8 +455,8 @@ pub fn keep_inside_arena(mut query: Query<&mut Transform, Without<Wall>>) {
 }
 
 pub fn update_stats_text(
-    stats: Res<SimStats>,
     diagnostics: Res<DiagnosticsStore>,
+    hiders: Query<&Hider>,
     mut query: Query<&mut Text, With<StatsText>>,
 ) {
     let fps = diagnostics
@@ -335,12 +464,16 @@ pub fn update_stats_text(
         .and_then(|fps| fps.smoothed())
         .unwrap_or(0.0);
 
-    let alive = NUM_HIDERS - stats.captured;
+    let (alive, captured) = hiders.iter().fold((0, 0), |(alive, captured), hider| {
+        if hider.captured {
+            (alive, captured + 1)
+        } else {
+            (alive + 1, captured)
+        }
+    });
 
     for mut text in query.iter_mut() {
-        text.sections[0].value = format!(
-            "alive hiders: {alive} | captured: {} | fps: {fps:.0}",
-            stats.captured
-        );
+        text.sections[0].value =
+            format!("alive hiders: {alive} | captured: {captured} | fps: {fps:.0}");
     }
 }

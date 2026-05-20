@@ -25,7 +25,6 @@ pub const CONTROL_HZ: f32 = 12.0;
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::srgb(0.025, 0.028, 0.035)))
-        .insert_resource(SimStats::default())
         .insert_resource(ControlTimer {
             timer: Timer::from_seconds(1.0 / CONTROL_HZ, TimerMode::Repeating),
         })
@@ -51,7 +50,8 @@ fn main() {
                 capture_system,
                 update_agent_visuals,
                 update_stats_text,
-            ),
+            )
+                .chain(),
         )
         .add_systems(FixedUpdate, (apply_velocity, keep_inside_arena))
         .run();

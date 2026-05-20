@@ -19,11 +19,6 @@ pub struct StatsText;
 #[derive(Component)]
 pub struct Wall;
 
-#[derive(Resource, Default)]
-pub struct SimStats {
-    pub captured: usize,
-}
-
 #[derive(Resource)]
 pub struct ControlTimer {
     pub timer: Timer,
