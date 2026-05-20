@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="760" viewBox="0 0 1180 760" role="img" aria-label="Simulation screenshot placeholder">
+  <rect width="1180" height="760" fill="#11141a"/>
+  <rect x="28" y="28" width="1124" height="704" fill="#171d26" stroke="#747982" stroke-width="10"/>
+  <rect x="190" y="210" width="250" height="26" fill="#7b8089"/>
+  <rect x="700" y="490" width="300" height="26" fill="#7b8089"/>
+  <rect x="575" y="190" width="30" height="175" fill="#7b8089"/>
+  <circle cx="270" cy="360" r="8" fill="#3399ff"/>
+  <circle cx="315" cy="420" r="8" fill="#3399ff"/>
+  <circle cx="420" cy="300" r="8" fill="#3399ff"/>
+  <circle cx="820" cy="370" r="10" fill="#ff403d"/>
+  <circle cx="910" cy="260" r="10" fill="#ff403d"/>
+  <text x="590" y="392" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="34" fill="#e8edf4">
+    Simulation screenshot placeholder
+  </text>
+</svg>
