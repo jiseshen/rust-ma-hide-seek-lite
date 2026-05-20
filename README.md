@@ -4,7 +4,7 @@ A lightweight 2D multi-agent simulation built with Rust, Bevy, and Rapier.
 
 The project is a compact pursuit-evasion environment: blue hiders move through an arena while red seekers pursue visible targets. Walls and obstacles are handled by Rapier physics, and line-of-sight is blocked by fixed colliders. The simulation is small enough to read in one sitting, while still showing the core pieces of an actor simulation loop.
 
-![Simulation screenshot placeholder](docs/screenshot-placeholder.svg)
+![Simulation screenshot placeholder](docs/illustration.png)
 
 ## Run
 
